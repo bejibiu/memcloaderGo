@@ -1,0 +1,8 @@
+
+*.so
+*.dylib
+*.test
+*.out
+/vendor/
+/Godeps/
+.idea/
