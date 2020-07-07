@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -141,8 +142,6 @@ func main() {
 	flag.Parse()
 	fmt.Printf("Run with pattert:%v\n idfa: %v\n gaid: %v\n adid: %v\n dvid: %v\n", pattern, idfa, gaid, adid, dvid)
 
-	ch := make(chan string)
-	chAppInstaller := make(chan AppsInstalled)
 	clients := make(map[string]*memcache.Client)
 
 	clients["idfa"] = memcache.New(idfa)
@@ -150,7 +149,16 @@ func main() {
 	clients["adid"] = memcache.New(adid)
 	clients["dvid"] = memcache.New(dvid)
 
-	go readfiletochain(pattern, ch)
-	go fillChanAppInstaledInstance(ch, chAppInstaller)
-	sendToMemc(clients, chAppInstaller)
+	if files, err := filepath.Glob(pattern); err == nil {
+		for _, file := range files {
+			ch := make(chan string)
+			chAppInstaller := make(chan AppsInstalled)
+			fmt.Printf("Start file %v\n", file)
+			go readfiletochain(file, ch)
+			go fillChanAppInstaledInstance(ch, chAppInstaller)
+			sendToMemc(clients, chAppInstaller)
+			fmt.Printf("Complited file %v\n", file)
+		}
+
+	}
 }
