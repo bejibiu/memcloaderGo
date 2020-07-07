@@ -95,7 +95,7 @@ func fillChanAppInstaledInstance(ch chan string, chAppInstaller chan AppsInstall
 
 			chAppInstaller <- appsInstalled
 		} else {
-			fmt.Println(err)
+			log.Println(err)
 			return
 		}
 	}
@@ -123,7 +123,7 @@ func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsIns
 		if memcClient, ok := clients[app.devType]; ok == true {
 			message := createMessage(app)
 			memcClient.Set(&message)
-			fmt.Println(message)
+			log.Println(message)
 		}
 	}
 }
@@ -140,7 +140,7 @@ func main() {
 	flag.StringVar(&dvid, "dvid", "127.0.0.1:33016", "address to dvid memcached storage")
 
 	flag.Parse()
-	fmt.Printf("Run with pattert:%v\n idfa: %v\n gaid: %v\n adid: %v\n dvid: %v\n", pattern, idfa, gaid, adid, dvid)
+	log.Printf("Run with pattert:%v\n\t idfa: %v\n\t gaid: %v\n\t adid: %v\n\t dvid: %v\n", pattern, idfa, gaid, adid, dvid)
 
 	clients := make(map[string]*memcache.Client)
 
@@ -153,11 +153,11 @@ func main() {
 		for _, file := range files {
 			ch := make(chan string)
 			chAppInstaller := make(chan AppsInstalled)
-			fmt.Printf("Start file %v\n", file)
+			log.Printf("Start file %v\n", file)
 			go readfiletochain(file, ch)
 			go fillChanAppInstaledInstance(ch, chAppInstaller)
 			sendToMemc(clients, chAppInstaller)
-			fmt.Printf("Complited file %v\n", file)
+			log.Printf("Complited file %v\n", file)
 		}
 
 	}
