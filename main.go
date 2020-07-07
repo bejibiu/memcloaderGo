@@ -4,6 +4,7 @@ import (
 	"appinstalledpb"
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -116,18 +117,7 @@ func createMessage(app AppsInstalled) memcache.Item {
 	}
 }
 
-func main() {
-	ch := make(chan string)
-	chAppInstaller := make(chan AppsInstalled)
-	clients := make(map[string]*memcache.Client)
-
-	clients["idfa"] = memcache.New("127.0.0.1:5001")
-	clients["gaid"] = memcache.New("127.0.0.1:5002")
-	clients["adid"] = memcache.New("127.0.0.1:5003")
-	clients["dvid"] = memcache.New("127.0.0.1:5004")
-
-	go readfiletochain("sample.tsv", ch)
-	go fillChanAppInstaledInstance(ch, chAppInstaller)
+func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsInstalled) {
 	for app := range chAppInstaller {
 		if memcClient, ok := clients[app.devType]; ok == true {
 			message := createMessage(app)
@@ -135,4 +125,32 @@ func main() {
 			fmt.Println(message)
 		}
 	}
+}
+
+func main() {
+	var pattern string
+	var idfa, gaid, adid, dvid string
+
+	flag.StringVar(&pattern, "pattern", "/data/appsinstalled/*.tsv.gz", "patter files to procesing")
+
+	flag.StringVar(&idfa, "idfa", "127.0.0.1:33013", "address to idfa memcached storage")
+	flag.StringVar(&gaid, "gaid", "127.0.0.1:33014", "address to gaid memcached storage")
+	flag.StringVar(&adid, "adid", "127.0.0.1:33015", "address to adid memcached storage")
+	flag.StringVar(&dvid, "dvid", "127.0.0.1:33016", "address to dvid memcached storage")
+
+	flag.Parse()
+	fmt.Printf("Run with pattert:%v\n idfa: %v\n gaid: %v\n adid: %v\n dvid: %v\n", pattern, idfa, gaid, adid, dvid)
+
+	ch := make(chan string)
+	chAppInstaller := make(chan AppsInstalled)
+	clients := make(map[string]*memcache.Client)
+
+	clients["idfa"] = memcache.New(idfa)
+	clients["gaid"] = memcache.New(gaid)
+	clients["adid"] = memcache.New(adid)
+	clients["dvid"] = memcache.New(dvid)
+
+	go readfiletochain(pattern, ch)
+	go fillChanAppInstaledInstance(ch, chAppInstaller)
+	sendToMemc(clients, chAppInstaller)
 }
