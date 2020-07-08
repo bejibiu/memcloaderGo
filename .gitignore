@@ -3,6 +3,7 @@
 *.dylib
 *.test
 *.out
+2017*.tsv.gz
 /vendor/
 /Godeps/
 .idea/

@@ -25,11 +25,6 @@ type AppsInstalled struct {
 	apps    []uint32
 }
 
-type PipeLinesApps struct {
-	parsed_threads []int
-	sender_threads []int
-}
-
 const NORMAL_ERR_RATE = 0.01
 
 func readfiletochain(filename string, ch chan string) {
@@ -133,6 +128,16 @@ func dotRename(dir, fileName string) error {
 	return os.Rename(filepath.Join(dir, fileName), fmt.Sprintf("%v.%v", dir, fileName))
 }
 
+func processingFile(file string, clients map[string]*memcache.Client) {
+
+	ch := make(chan string)
+	chAppInstaller := make(chan AppsInstalled)
+	log.Printf("Start file %v\n", file)
+	go readfiletochain(file, ch)
+	go fillChanAppInstaledInstance(ch, chAppInstaller)
+	sendToMemc(clients, chAppInstaller)
+}
+
 func main() {
 	var pattern string
 	var idfa, gaid, adid, dvid string
@@ -161,12 +166,7 @@ func main() {
 				log.Printf("Skip '%v'", fileName)
 				continue
 			}
-			ch := make(chan string)
-			chAppInstaller := make(chan AppsInstalled)
-			log.Printf("Start file %v\n", file)
-			go readfiletochain(file, ch)
-			go fillChanAppInstaledInstance(ch, chAppInstaller)
-			sendToMemc(clients, chAppInstaller)
+			processingFile(file, clients)
 
 			if err := dotRename(dir, fileName); err != nil {
 				log.Fatal("Can't rename file")
