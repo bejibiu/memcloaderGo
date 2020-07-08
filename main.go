@@ -128,9 +128,9 @@ func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsIns
 	}
 }
 
-func dotRename(filePath string) error {
-	dir, file := filepath.Split(filePath)
-	return os.Rename(filePath, fmt.Sprintf("%v.%v", dir, file))
+func dotRename(dir, fileName string) error {
+
+	return os.Rename(filepath.Join(dir, fileName), fmt.Sprintf("%v.%v", dir, fileName))
 }
 
 func main() {
@@ -156,7 +156,11 @@ func main() {
 
 	if files, err := filepath.Glob(pattern); err == nil {
 		for _, file := range files {
-			// TODO: chake by dot
+			dir, fileName := filepath.Split(file)
+			if fileName[0] == '.' {
+				log.Printf("Skip '%v'", fileName)
+				continue
+			}
 			ch := make(chan string)
 			chAppInstaller := make(chan AppsInstalled)
 			log.Printf("Start file %v\n", file)
@@ -164,7 +168,7 @@ func main() {
 			go fillChanAppInstaledInstance(ch, chAppInstaller)
 			sendToMemc(clients, chAppInstaller)
 
-			if err := dotRename(file); err != nil {
+			if err := dotRename(dir, fileName); err != nil {
 				log.Fatal("Can't rename file")
 			}
 
