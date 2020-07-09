@@ -3,6 +3,7 @@ package main
 import (
 	"appinstalledpb"
 	"bufio"
+	"compress/gzip"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,8 +34,11 @@ func readfiletochain(filename string, ch chan string) {
 		log.Fatal(err)
 	}
 	defer f.Close()
-
-	reader := bufio.NewReader(f)
+	g, err := gzip.NewReader(f)
+	if err != nil {
+		log.Fatal("can not open gzip file")
+	}
+	reader := bufio.NewReader(g)
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -84,15 +88,23 @@ func createAppInstall(paramList []string) (AppsInstalled, error) {
 }
 
 func fillChanAppInstaledInstance(ch chan string, chAppInstaller chan AppsInstalled) {
+	var failed, success float64
 	for value := range ch {
 		paramList := strings.Split(value, "\t")
 		if appsInstalled, err := createAppInstall(paramList); err == nil {
 
 			chAppInstaller <- appsInstalled
+			success++
 		} else {
 			log.Println(err)
-			return
+			failed++
 		}
+	}
+	if total := success + failed; success > 0 && failed/success+failed >= NORMAL_ERR_RATE {
+		log.Printf(
+			"Too many invalid records (Total: %d | Error: %d)\n", int(total), int(failed),
+		)
+		return
 	}
 	close(chAppInstaller)
 }
@@ -124,7 +136,6 @@ func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsIns
 }
 
 func dotRename(dir, fileName string) error {
-
 	return os.Rename(filepath.Join(dir, fileName), fmt.Sprintf("%v.%v", dir, fileName))
 }
 
