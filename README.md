@@ -22,7 +22,7 @@ Options
 `adid`| "127.0.0.1:33015"| 
 `dvid`| "127.0.0.1:33016"| 
 
-For test in docker
+For test
 -------------
 ```shell script
 go run memcloaderGo --dry  --pattern sample.zip
