@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 	"google.golang.org/protobuf/proto"
@@ -26,9 +27,9 @@ type AppsInstalled struct {
 	apps    []uint32
 }
 
-const NORMAL_ERR_RATE = 0.01
+const NormalErrRate = 0.01
 
-func readfiletochain(filename string, ch chan string) {
+func reaFileToChain(filename string, ch chan string) {
 	f, err := os.Open(filename)
 	if err != nil {
 		log.Fatal(err)
@@ -39,6 +40,7 @@ func readfiletochain(filename string, ch chan string) {
 		log.Fatal("can not open gzip file")
 	}
 	reader := bufio.NewReader(g)
+	numberLine := 0
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -51,6 +53,10 @@ func readfiletochain(filename string, ch chan string) {
 		}
 		if len(line) > 0 {
 			ch <- line
+			numberLine++
+			if numberLine%1000 == 0 {
+				fmt.Printf("Read %v from %v \n", numberLine, filename)
+			}
 		}
 	}
 	close(ch)
@@ -100,7 +106,7 @@ func fillChanAppInstaledInstance(ch chan string, chAppInstaller chan AppsInstall
 			failed++
 		}
 	}
-	if total := success + failed; success > 0 && failed/success+failed >= NORMAL_ERR_RATE {
+	if total := success + failed; success > 0 && failed/success+failed >= NormalErrRate {
 		log.Printf(
 			"Too many invalid records (Total: %d | Error: %d)\n", int(total), int(failed),
 		)
@@ -125,13 +131,26 @@ func createMessage(app AppsInstalled) memcache.Item {
 	}
 }
 
-func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsInstalled) {
+func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsInstalled, memcacheInsertAttempts int, deleyBetweenAttemt time.Duration) {
+
 	for app := range chAppInstaller {
 		if memcClient, ok := clients[app.devType]; ok == true {
 			message := createMessage(app)
-			memcClient.Set(&message)
-			log.Println(message)
+			for attempt := 0; attempt < memcacheInsertAttempts; attempt++ {
+				err := memcClient.Set(&message)
+				if err != nil {
+					time.Sleep(deleyBetweenAttemt * time.Second)
+					continue
+				}
+			}
+
+			log.Printf("error connect to Memcached: %s\n", app.devType)
+			continue
+
 		}
+		log.Printf("error parse type: %s\n", app.devType)
+		continue
+
 	}
 }
 
@@ -139,21 +158,27 @@ func dotRename(dir, fileName string) error {
 	return os.Rename(filepath.Join(dir, fileName), fmt.Sprintf("%v.%v", dir, fileName))
 }
 
-func processingFile(file string, clients map[string]*memcache.Client) {
+func processingFile(file string, clients map[string]*memcache.Client, memcacheInsertAttempts int, deleyBetweenAttemt time.Duration) {
 
 	ch := make(chan string)
 	chAppInstaller := make(chan AppsInstalled)
 	log.Printf("Start file %v\n", file)
-	go readfiletochain(file, ch)
+	go reaFileToChain(file, ch)
 	go fillChanAppInstaledInstance(ch, chAppInstaller)
-	sendToMemc(clients, chAppInstaller)
+	sendToMemc(clients, chAppInstaller, memcacheInsertAttempts, deleyBetweenAttemt)
 }
 
 func main() {
-	var pattern string
+	var pattern, duration string
 	var idfa, gaid, adid, dvid string
+	var memcacheInsertAttempts int
+	var deleyBetweenAttemt time.Duration
 
 	flag.StringVar(&pattern, "pattern", "/data/appsinstalled/*.tsv.gz", "patter files to procesing")
+	flag.IntVar(&memcacheInsertAttempts, "attemts", 3, "attemts to try connect to memcache")
+	flag.StringVar(&duration, "deleyBetweenAttemt", "3", "deley between attemt to insert into memcache in sec")
+
+	deleyBetweenAttemt, _ = time.ParseDuration(fmt.Sprintf(duration, "s"))
 
 	flag.StringVar(&idfa, "idfa", "127.0.0.1:33013", "address to idfa memcached storage")
 	flag.StringVar(&gaid, "gaid", "127.0.0.1:33014", "address to gaid memcached storage")
@@ -177,7 +202,7 @@ func main() {
 				log.Printf("Skip '%v'", fileName)
 				continue
 			}
-			processingFile(file, clients)
+			processingFile(file, clients, memcacheInsertAttempts, deleyBetweenAttemt)
 
 			if err := dotRename(dir, fileName); err != nil {
 				log.Fatal("Can't rename file")
