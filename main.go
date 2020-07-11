@@ -131,11 +131,17 @@ func createMessage(app AppsInstalled) memcache.Item {
 	}
 }
 
-func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsInstalled, memcacheInsertAttempts int, deleyBetweenAttemt time.Duration) {
+func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsInstalled,
+	memcacheInsertAttempts int, deleyBetweenAttemt time.Duration, dry bool) {
 
 	for app := range chAppInstaller {
 		if memcClient, ok := clients[app.devType]; ok == true {
 			message := createMessage(app)
+			if dry {
+				log.Printf("%s -> %s\n", message.Key, strings.Replace(string(message.Value), "\n", " ", -1))
+				continue
+			}
+
 			for attempt := 0; attempt < memcacheInsertAttempts; attempt++ {
 				err := memcClient.Set(&message)
 				if err != nil {
@@ -158,14 +164,15 @@ func dotRename(dir, fileName string) error {
 	return os.Rename(filepath.Join(dir, fileName), fmt.Sprintf("%v.%v", dir, fileName))
 }
 
-func processingFile(file string, clients map[string]*memcache.Client, memcacheInsertAttempts int, deleyBetweenAttemt time.Duration) {
+func processingFile(file string, clients map[string]*memcache.Client, memcacheInsertAttempts int,
+	deleyBetweenAttemt time.Duration, dry bool) {
 
 	ch := make(chan string)
 	chAppInstaller := make(chan AppsInstalled)
 	log.Printf("Start file %v\n", file)
 	go reaFileToChain(file, ch)
 	go fillChanAppInstaledInstance(ch, chAppInstaller)
-	sendToMemc(clients, chAppInstaller, memcacheInsertAttempts, deleyBetweenAttemt)
+	sendToMemc(clients, chAppInstaller, memcacheInsertAttempts, deleyBetweenAttemt, dry)
 }
 
 func main() {
@@ -173,6 +180,7 @@ func main() {
 	var idfa, gaid, adid, dvid string
 	var memcacheInsertAttempts int
 	var deleyBetweenAttemt time.Duration
+	var dry bool
 
 	flag.StringVar(&pattern, "pattern", "/data/appsinstalled/*.tsv.gz", "patter files to procesing")
 	flag.IntVar(&memcacheInsertAttempts, "attemts", 3, "attemts to try connect to memcache")
@@ -184,6 +192,8 @@ func main() {
 	flag.StringVar(&gaid, "gaid", "127.0.0.1:33014", "address to gaid memcached storage")
 	flag.StringVar(&adid, "adid", "127.0.0.1:33015", "address to adid memcached storage")
 	flag.StringVar(&dvid, "dvid", "127.0.0.1:33016", "address to dvid memcached storage")
+
+	flag.BoolVar(&dry, "dry", false, "")
 
 	flag.Parse()
 	log.Printf("Run with pattert:%v\n\t idfa: %v\n\t gaid: %v\n\t adid: %v\n\t dvid: %v\n", pattern, idfa, gaid, adid, dvid)
@@ -202,7 +212,7 @@ func main() {
 				log.Printf("Skip '%v'", fileName)
 				continue
 			}
-			processingFile(file, clients, memcacheInsertAttempts, deleyBetweenAttemt)
+			processingFile(file, clients, memcacheInsertAttempts, deleyBetweenAttemt, dry)
 
 			if err := dotRename(dir, fileName); err != nil {
 				log.Fatal("Can't rename file")
