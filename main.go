@@ -138,7 +138,7 @@ func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsIns
 		if memcClient, ok := clients[app.devType]; ok == true {
 			message := createMessage(app)
 			if dry {
-				log.Printf("%s -> %s\n", message.Key, strings.Replace(string(message.Value), "\n", " ", -1))
+				log.Printf("%s -> %s\n", message.Key, app)
 				continue
 			}
 
