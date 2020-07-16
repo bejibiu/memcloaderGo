@@ -176,17 +176,19 @@ func processingFile(file string, clients map[string]*memcache.Client, memcacheIn
 }
 
 func main() {
-	var pattern, duration string
-	var idfa, gaid, adid, dvid string
-	var memcacheInsertAttempts int
-	var deleyBetweenAttemt time.Duration
-	var dry bool
+	var (
+		idfa, gaid, adid, dvid, pattern, duration, timeoutTime string
+		memcacheInsertAttempts                                 int
+		dry                                                    bool
+	)
 
 	flag.StringVar(&pattern, "pattern", "/data/appsinstalled/*.tsv.gz", "patter files to procesing")
 	flag.IntVar(&memcacheInsertAttempts, "attemts", 3, "attemts to try connect to memcache")
 	flag.StringVar(&duration, "deleyBetweenAttemt", "3", "deley between attemt to insert into memcache in sec")
+	flag.StringVar(&timeoutTime, "timeout", "10", "soccet timeout")
 
-	deleyBetweenAttemt, _ = time.ParseDuration(fmt.Sprintf(duration, "s"))
+	deleyBetweenAttemt, _ := time.ParseDuration(fmt.Sprintf(duration, "s"))
+	memecTimeout, _ := time.ParseDuration(timeoutTime)
 
 	flag.StringVar(&idfa, "idfa", "127.0.0.1:33013", "address to idfa memcached storage")
 	flag.StringVar(&gaid, "gaid", "127.0.0.1:33014", "address to gaid memcached storage")
@@ -204,6 +206,11 @@ func main() {
 	clients["gaid"] = memcache.New(gaid)
 	clients["adid"] = memcache.New(adid)
 	clients["dvid"] = memcache.New(dvid)
+
+	clients["idfa"].Timeout = memecTimeout
+	clients["gaid"].Timeout = memecTimeout
+	clients["adid"].Timeout = memecTimeout
+	clients["dvid"].Timeout = memecTimeout
 
 	if files, err := filepath.Glob(pattern); err == nil {
 		for _, file := range files {
