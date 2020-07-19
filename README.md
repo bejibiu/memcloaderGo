@@ -4,7 +4,7 @@ an app for honing the skill of converting an app into a `Python` to `Golang`
 
 Run
 ---
-* install golanng 
+* install golang 
 * run build 
 * run application
 
@@ -26,4 +26,11 @@ For test
 -------------
 ```shell script
 go run memcloaderGo --dry  --pattern sample.zip
+```
+
+Run this command for test memcloaderGo with memcached in docker: 
+```shell script
+docker run -d -p 33013:33013 -p 33014:33014 -p 33015:33015 -p 33016:33016 --rm \
+ memcached -l  0.0.0.0:33013,0.0.0.0:33014,0.0.0.0:33015,0.0.0.0:33016
+go run memcloaderGo --pattern *.tsv.gz
 ```
