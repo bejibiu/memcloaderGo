@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
@@ -25,6 +26,13 @@ type AppsInstalled struct {
 	lat     float64
 	lon     float64
 	apps    []uint32
+}
+
+type Config struct {
+	clients                         map[string]*memcache.Client
+	memcacheInsertAttempts, workers int
+	deleyBetweenAttemt              time.Duration
+	dry                             bool
 }
 
 const NormalErrRate = 0.01
@@ -131,31 +139,37 @@ func createMessage(app AppsInstalled) memcache.Item {
 	}
 }
 
-func sendToMemc(clients map[string]*memcache.Client, chAppInstaller chan AppsInstalled,
-	memcacheInsertAttempts int, deleyBetweenAttemt time.Duration, dry bool) {
-
-	for app := range chAppInstaller {
-		if memcClient, ok := clients[app.devType]; ok == true {
-			message := createMessage(app)
-			if dry {
-				log.Printf("%s -> %s\n", message.Key, app)
-				continue
-			}
-
-			for attempt := 0; attempt < memcacheInsertAttempts; attempt++ {
-				err := memcClient.Set(&message)
-				if err != nil {
-					time.Sleep(deleyBetweenAttemt * time.Second)
-					continue
-				}
-			}
-
-			log.Printf("error connect to Memcached: %s\n", app.devType)
+func memcSetWithAttempt(config *Config, message *memcache.Item, memcClient *memcache.Client) error {
+	var err error
+	for attempt := 0; attempt < config.memcacheInsertAttempts; attempt++ {
+		err = memcClient.Set(message)
+		if err != nil {
+			time.Sleep(config.deleyBetweenAttemt * time.Second)
 			continue
-
 		}
-		log.Printf("error parse type: %s\n", app.devType)
-		continue
+		break
+
+	}
+	return err
+}
+
+func sendToMemc(wg *sync.WaitGroup, chAppInstaller chan AppsInstalled, config Config) {
+	defer wg.Done()
+	for app := range chAppInstaller {
+		memcClient, ok := config.clients[app.devType]
+		if ok != true {
+			log.Printf("error parse type: %s\n", app.devType)
+			continue
+		}
+		message := createMessage(app)
+		if config.dry {
+			log.Printf("%v -> %v\n", message.Key, app)
+			continue
+		}
+
+		if err := memcSetWithAttempt(&config, &message, memcClient); err != nil {
+			log.Printf("error connect to Memcached: %s\n", app.devType)
+		}
 
 	}
 }
@@ -164,31 +178,36 @@ func dotRename(dir, fileName string) error {
 	return os.Rename(filepath.Join(dir, fileName), fmt.Sprintf("%v.%v", dir, fileName))
 }
 
-func processingFile(file string, clients map[string]*memcache.Client, memcacheInsertAttempts int,
-	deleyBetweenAttemt time.Duration, dry bool) {
+func processingFile(file string, config Config) {
 
 	ch := make(chan string)
 	chAppInstaller := make(chan AppsInstalled)
 	log.Printf("Start file %v\n", file)
+	var wg sync.WaitGroup
 	go reaFileToChain(file, ch)
 	go fillChanAppInstaledInstance(ch, chAppInstaller)
-	sendToMemc(clients, chAppInstaller, memcacheInsertAttempts, deleyBetweenAttemt, dry)
+	for i := 0; i < config.workers; i++ {
+		wg.Add(1)
+		go sendToMemc(&wg, chAppInstaller, config)
+	}
+	wg.Wait()
 }
 
 func main() {
 	var (
 		idfa, gaid, adid, dvid, pattern, duration, timeoutTime string
-		memcacheInsertAttempts                                 int
+		memcacheInsertAttempts, workers                        int
 		dry                                                    bool
 	)
 
 	flag.StringVar(&pattern, "pattern", "/data/appsinstalled/*.tsv.gz", "patter files to procesing")
 	flag.IntVar(&memcacheInsertAttempts, "attemts", 3, "attemts to try connect to memcache")
+	flag.IntVar(&workers, "workers", 3, "workers to save app in memcache")
 	flag.StringVar(&duration, "deleyBetweenAttemt", "3", "deley between attemt to insert into memcache in sec")
-	flag.StringVar(&timeoutTime, "timeout", "10", "soccet timeout")
+	flag.StringVar(&timeoutTime, "timeout", "10", "socket timeout")
 
 	deleyBetweenAttemt, _ := time.ParseDuration(fmt.Sprintf(duration, "s"))
-	memecTimeout, _ := time.ParseDuration(timeoutTime)
+	memecTimeout, _ := time.ParseDuration(fmt.Sprintf(timeoutTime, "s"))
 
 	flag.StringVar(&idfa, "idfa", "127.0.0.1:33013", "address to idfa memcached storage")
 	flag.StringVar(&gaid, "gaid", "127.0.0.1:33014", "address to gaid memcached storage")
@@ -212,6 +231,14 @@ func main() {
 	clients["adid"].Timeout = memecTimeout
 	clients["dvid"].Timeout = memecTimeout
 
+	config := Config{
+		clients:                clients,
+		memcacheInsertAttempts: memcacheInsertAttempts,
+		workers:                workers,
+		deleyBetweenAttemt:     deleyBetweenAttemt,
+		dry:                    dry,
+	}
+
 	if files, err := filepath.Glob(pattern); err == nil {
 		for _, file := range files {
 			dir, fileName := filepath.Split(file)
@@ -219,14 +246,15 @@ func main() {
 				log.Printf("Skip '%v'", fileName)
 				continue
 			}
-			processingFile(file, clients, memcacheInsertAttempts, deleyBetweenAttemt, dry)
+			processingFile(file, config)
 
 			if err := dotRename(dir, fileName); err != nil {
 				log.Fatal("Can't rename file")
 			}
 
-			log.Printf("FIle %v was complited and renamed\n", file)
+			log.Printf("File %v was complited and renamed\n", file)
 		}
+		log.Printf("All done")
 
 	}
 }
