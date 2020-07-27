@@ -174,7 +174,8 @@ func sendToMemc(wg *sync.WaitGroup, chAppInstaller chan AppsInstalled, config Co
 	}
 }
 
-func dotRename(dir, fileName string) error {
+func dotRename(file string) error {
+	dir, fileName := filepath.Split(file)
 	return os.Rename(filepath.Join(dir, fileName), fmt.Sprintf("%v.%v", dir, fileName))
 }
 
@@ -190,6 +191,7 @@ func processingFile(file string, config Config, wellDoneCh chan string, wgFileCo
 		wg.Add(1)
 		go sendToMemc(&wg, chAppInstaller, config)
 	}
+	log.Printf("File %v was processed\n", file)
 	wg.Wait()
 }
 
@@ -241,7 +243,6 @@ func main() {
 
 	var wgFileComplited sync.WaitGroup
 	wellDoneCh := make(chan string)
-
 	if files, err := filepath.Glob(pattern); err == nil {
 		for _, file := range files {
 
@@ -256,12 +257,10 @@ func main() {
 		}
 		wgFileComplited.Wait()
 		for _, file := range files {
-			dir, fileName := filepath.Split(file)
-			if err := dotRename(dir, fileName); err != nil {
+			if err := dotRename(file); err != nil {
 				log.Println("Can't rename file")
-			}
 
-			log.Printf("File %v was complited and renamed\n", fileName)
+			}
 		}
 
 	}
