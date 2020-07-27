@@ -178,8 +178,8 @@ func dotRename(dir, fileName string) error {
 	return os.Rename(filepath.Join(dir, fileName), fmt.Sprintf("%v.%v", dir, fileName))
 }
 
-func processingFile(file string, config Config) {
-
+func processingFile(file string, config Config, wellDoneCh chan string, wgFileComplited *sync.WaitGroup) {
+	defer wgFileComplited.Done()
 	ch := make(chan string)
 	chAppInstaller := make(chan AppsInstalled)
 	log.Printf("Start file %v\n", file)
@@ -239,22 +239,31 @@ func main() {
 		dry:                    dry,
 	}
 
+	var wgFileComplited sync.WaitGroup
+	wellDoneCh := make(chan string)
+
 	if files, err := filepath.Glob(pattern); err == nil {
 		for _, file := range files {
-			dir, fileName := filepath.Split(file)
+
+			_, fileName := filepath.Split(file)
 			if fileName[0] == '.' {
 				log.Printf("Skip '%v'", fileName)
 				continue
 			}
-			processingFile(file, config)
+			wgFileComplited.Add(1)
+			go processingFile(file, config, wellDoneCh, &wgFileComplited)
 
+		}
+		wgFileComplited.Wait()
+		for _, file := range files {
+			dir, fileName := filepath.Split(file)
 			if err := dotRename(dir, fileName); err != nil {
-				log.Fatal("Can't rename file")
+				log.Println("Can't rename file")
 			}
 
-			log.Printf("File %v was complited and renamed\n", file)
+			log.Printf("File %v was complited and renamed\n", fileName)
 		}
-		log.Printf("All done")
 
 	}
+	log.Printf("All done")
 }
